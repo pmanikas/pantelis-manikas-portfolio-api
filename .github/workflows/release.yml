@@ -11,21 +11,39 @@ jobs:
         runs-on: ubuntu-latest
 
         steps:
-            # Step 1: Check out the code
             - name: Check out the code
               uses: actions/checkout@v3
 
-            # Step 2: Set up SSH
+            - name: Set up Node.js
+              uses: actions/setup-node@v3
+              with:
+                  node-version: '18'
+
+            # Install dependencies and build locally
+            - name: Install deps and build
+              run: |
+                  npm ci
+                  npm run build || true
+
+            # Set up SSH key for copying files
             - name: Set up SSH
               run: |
                   mkdir -p ~/.ssh
                   echo "${{ secrets.SSH_PRIVATE_KEY }}" > ~/.ssh/id_rsa
                   chmod 600 ~/.ssh/id_rsa
-                  ssh-keyscan ${{ secrets.SSH_HOST }} >> ~/.ssh/known_hosts
+                  ssh-keyscan -H ${{ secrets.SSH_HOST }} >> ~/.ssh/known_hosts
 
-            # Step 3: Deploy to server (with set -e to stop on error)
-            - name: Deploy to server
-              run: ssh ${{ secrets.SSH_USER }}@${{ secrets.SSH_HOST }} 'eval $(ssh-agent -s) && ssh-add ${{ secrets.SSH_KEYS_LOCATION }} && cd ${{ secrets.APP_PATH }} && git fetch && git checkout main && git stash && git pull origin main && npm install && npm run build && pm2 restart ${{ secrets.PROCESS_APP_NAME }}'
+            # Copy files to the server using rsync (excludes the git folder)
+            - name: Copy files to server
+              run: |
+                  # optional: adjust excludes as needed (e.g. .github, .env)
+                  RSYNC_EXCLUDES="--exclude='.git' --exclude='.github' "
+                  rsync -az --delete $RSYNC_EXCLUDES -e "ssh -i ~/.ssh/id_rsa -o StrictHostKeyChecking=no" ./ ${{ secrets.SSH_USER }}@${{ secrets.SSH_HOST }}:${{ secrets.APP_PATH }}
+
+            # Restart process on remote
+            - name: Restart remote process
+              run: |
+                  ssh -i ~/.ssh/id_rsa -o StrictHostKeyChecking=no ${{ secrets.SSH_USER }}@${{ secrets.SSH_HOST }} "pm2 restart ${{ secrets.PROCESS_APP_NAME }} || pm2 start ${{ secrets.PROCESS_APP_NAME }}"
 
 
 # Useful links:
