@@ -1,33 +1,33 @@
-name: Deploy API to Server
+name: CI/CD Portfolio Api Release
 
 on:
-  push:
-    branches: [ main ]
-  workflow_dispatch:
+    push:
+        branches:
+            - main
+    workflow_dispatch:
 
 jobs:
-  build:
-    runs-on: ubuntu-latest
-    defaults:
-      run:
-        working-directory: ./
-    steps:
-    - uses: actions/checkout@v2
-    - uses: actions/setup-node@v2
-      with:
-        node-version: '16.x'
+    build-and-deploy:
+        runs-on: ubuntu-latest
 
-    - name: Install Dependencies
-      run: npm install
+        steps:
+            # Step 1: Check out the code
+            - name: Check out the code
+              uses: actions/checkout@v3
 
-    - name: Delete Existing Files
-      run: sudo sshpass -p "${{ secrets.SSH_PASS }}" -v ssh -o StrictHostKeyChecking=no ${{ secrets.SSH_USER }}@${{ secrets.SSH_HOST }} 'rm -rf public_html/pantelismanikas/api.pantelismanikas.com/*'
+            # Step 2: Set up SSH
+            - name: Set up SSH
+              run: |
+                  mkdir -p ~/.ssh
+                  echo "${{ secrets.SSH_PRIVATE_KEY }}" > ~/.ssh/id_rsa
+                  chmod 600 ~/.ssh/id_rsa
+                  ssh-keyscan ${{ secrets.SSH_HOST }} >> ~/.ssh/known_hosts
 
-    - name: Compress new files
-      run: |
-            tar -czvf ../app.tar.gz .
-            cd ..
-            sudo sshpass -p "${{ secrets.SSH_PASS }}" scp -r app.tar.gz ${{ secrets.SSH_USER }}@${{ secrets.SSH_HOST }}:public_html/pantelismanikas/api.pantelismanikas.com
+            # Step 3: Deploy to server (with set -e to stop on error)
+            - name: Deploy to server
+              run: ssh ${{ secrets.SSH_USER }}@${{ secrets.SSH_HOST }} 'eval $(ssh-agent -s) && ssh-add ${{ secrets.SSH_KEYS_LOCATION }} && cd ${{ secrets.APP_PATH }} && git fetch && git checkout main && git stash && git pull origin main && npm install && npm run build && pm2 restart ${{ secrets.PROCESS_APP_NAME }}'
 
-    - name: Uncompress new Files
-      run : sudo sshpass -p "${{ secrets.SSH_PASS }}" -v ssh -o StrictHostKeyChecking=no ${{ secrets.SSH_USER }}@${{ secrets.SSH_HOST }} 'cd public_html/pantelismanikas/api.pantelismanikas.com && tar -xzvf app.tar.gz && rm app.tar.gz'
+
+# Useful links:
+    # https://docs.github.com/en/enterprise-cloud@latest/authentication/connecting-to-github-with-ssh/generating-a-new-ssh-key-and-adding-it-to-the-ssh-agent
+    # https://docs.github.com/en/enterprise-cloud@latest/authentication/connecting-to-github-with-ssh/adding-a-new-ssh-key-to-your-github-account
